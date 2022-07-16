@@ -26,7 +26,7 @@
 #include "main.h"
 
 #include "cmsis_os.h"
-
+#include "task.h"
 #include "bsp_imu_pwm.h"
 #include "bsp_spi.h"
 #include "bmi088driver.h"
@@ -115,7 +115,7 @@ fp32 INS_angle[3] = {0.0f, 0.0f, 0.0f};      //euler angle, unit rad.欧拉角 �
   * @param[in]      pvParameters: NULL
   * @retval         none
   */
-void INS_task(void const *pvParameters)
+void INS_task(void *pvParameters)
 {
     //wait a time
     osDelay(INS_TASK_INIT_TIME);
@@ -179,10 +179,6 @@ void INS_task(void const *pvParameters)
             BMI088_temperature_read_over(accel_temp_dma_rx_buf + BMI088_ACCEL_RX_BUF_DATA_OFFSET, &bmi088_real_data.temp);
             imu_temp_control(bmi088_real_data.temp);
         }
-
-
-        AHRS_update(INS_quat, 0.001f, bmi088_real_data.gyro, bmi088_real_data.accel, ist8310_real_data.mag);
-        get_angle(INS_quat, INS_angle + INS_YAW_ADDRESS_OFFSET, INS_angle + INS_PITCH_ADDRESS_OFFSET, INS_angle + INS_ROLL_ADDRESS_OFFSET);
 
 
     }
