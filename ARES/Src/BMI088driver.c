@@ -1,4 +1,4 @@
-﻿#include "BMI088driver.h"
+#include "BMI088driver.h"
 #include "BMI088reg.h"
 #include "BMI088Middleware.h"
 

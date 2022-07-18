@@ -33,7 +33,7 @@
 #include "ist8310driver.h"
 #include "pid.h"
 
-//#include "MahonyAHRS.h"
+#include "usbd_cdc_if.h"
 #include "math.h"
 
 
@@ -99,11 +99,13 @@ static uint8_t first_temperate;
 static const fp32 imu_temp_PID[3] = {TEMPERATURE_PID_KP, TEMPERATURE_PID_KI, TEMPERATURE_PID_KD};
 static pid_type_def imu_temp_pid;
 
+// {0x0D,0x0A,'G'/'A'/'M',...,0x0A,0x0D}
+static uint8_t gyro_cdc_tx_buf[sizeof(bmi088_real_data.gyro)+5];
+static uint8_t accel_cdc_tx_buf[sizeof(bmi088_real_data.accel)+5];
+static uint8_t mag_cdc_tx_buf[sizeof(bmi088_real_data.accel)+5];
 
-fp32 INS_quat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-fp32 INS_angle[3] = {0.0f, 0.0f, 0.0f};      //euler angle, unit rad.欧拉角 单位 rad
-
-
+extern USBD_HandleTypeDef hUsbDeviceFS;
+extern uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /**
   * @brief          imu task, init bmi088, ist8310, calculate the euler angle
@@ -132,8 +134,6 @@ void INS_task(void *pvParameters)
 
     PID_init(&imu_temp_pid, PID_POSITION, imu_temp_PID, TEMPERATURE_PID_MAX_OUT, TEMPERATURE_PID_MAX_IOUT);
 
-    AHRS_init(INS_quat, bmi088_real_data.accel, ist8310_real_data.mag);
-
 
     //get the handle of task
     //获取当前任务的任务句柄，
@@ -160,17 +160,41 @@ void INS_task(void *pvParameters)
         {
         }
 
+        // wait until all transfer is complete (i can only assume all transfer can be completed in one cycle)
+        while(((USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData)->TxState!=0){
+
+        }
+        uint8_t index=0;
+        memset(UserTxBufferFS,0,sizeof UserTxBufferFS);
 
         if(gyro_update_flag & (1 << IMU_NOTIFY_SHFITS))
         {
             gyro_update_flag &= ~(1 << IMU_NOTIFY_SHFITS);
             BMI088_gyro_read_over(gyro_dma_rx_buf + BMI088_GYRO_RX_BUF_DATA_OFFSET, bmi088_real_data.gyro);
+            gyro_cdc_tx_buf[0]=0x0D;
+            gyro_cdc_tx_buf[1]=0x0A;
+            gyro_cdc_tx_buf[2]='G';
+            memcpy(gyro_cdc_tx_buf+3,bmi088_real_data.gyro,sizeof(bmi088_real_data.gyro));
+            gyro_cdc_tx_buf[sizeof(bmi088_real_data.gyro)+3]=0x0A;
+            gyro_cdc_tx_buf[sizeof(bmi088_real_data.gyro)+4]=0x0D;
+            //add to tx buf
+            memcpy(UserTxBufferFS+index,gyro_cdc_tx_buf,sizeof(gyro_cdc_tx_buf));
+            index+=sizeof(gyro_cdc_tx_buf);
         }
 
         if(accel_update_flag & (1 << IMU_UPDATE_SHFITS))
         {
             accel_update_flag &= ~(1 << IMU_UPDATE_SHFITS);
             BMI088_accel_read_over(accel_dma_rx_buf + BMI088_ACCEL_RX_BUF_DATA_OFFSET, bmi088_real_data.accel, &bmi088_real_data.time);
+            accel_cdc_tx_buf[0]=0x0D;
+            accel_cdc_tx_buf[1]=0x0A;
+            accel_cdc_tx_buf[2]='A';
+            memcpy(accel_cdc_tx_buf+3,bmi088_real_data.accel,sizeof(bmi088_real_data.accel));
+            accel_cdc_tx_buf[sizeof(bmi088_real_data.accel)+3]=0x0A;
+            accel_cdc_tx_buf[sizeof(bmi088_real_data.accel)+4]=0x0D;
+            //add to tx buf
+            memcpy(UserTxBufferFS+index,accel_cdc_tx_buf,sizeof(accel_cdc_tx_buf));
+            index+=sizeof(accel_cdc_tx_buf);
         }
 
         if(accel_temp_update_flag & (1 << IMU_UPDATE_SHFITS))
@@ -180,7 +204,20 @@ void INS_task(void *pvParameters)
             imu_temp_control(bmi088_real_data.temp);
         }
 
+        if(mag_update_flag!=0){
+            mag_update_flag=0;
+            mag_cdc_tx_buf[0]=0x0D;
+            mag_cdc_tx_buf[1]=0x0A;
+            mag_cdc_tx_buf[2]='M';
+            memcpy(mag_cdc_tx_buf+3,ist8310_real_data.mag,sizeof(ist8310_real_data.mag));
+            mag_cdc_tx_buf[sizeof(ist8310_real_data.mag)+3]=0x0A;
+            mag_cdc_tx_buf[sizeof(ist8310_real_data.mag)+4]=0x0D;
+            //add to tx buf
+            memcpy(UserTxBufferFS+index,mag_cdc_tx_buf,sizeof(mag_cdc_tx_buf));
+            index+=sizeof(mag_cdc_tx_buf);
+        }
 
+        CDC_Transmit_FS(UserTxBufferFS,index);
     }
 }
 
